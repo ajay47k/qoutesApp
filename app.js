@@ -17,13 +17,47 @@
   const newBtn = document.getElementById('newQuoteBtn');
   const tweetBtn = document.getElementById('tweetBtn');
 
-  // ------------------ Config / APIs ------------------
-  // Primary: quotable.io random
-  const ENDPOINTS = [
-    'https://api.quotable.io/random',
-    // Fallback list API gives multiple; we'll pick random if first fails
-    'https://api.quotable.io/quotes?limit=50'
+  // ------------------ Config / Providers ------------------
+  // We rotate through providers; each returns a normalized { content, author }
+  const Providers = [
+    {
+      name: 'quotable-random',
+      fetch: async (signal) => {
+        const r = await fetch('https://api.quotable.io/random', { signal });
+        if (!r.ok) throw new Error('quotable random HTTP ' + r.status);
+        const j = await r.json();
+        if (!j.content) throw new Error('quotable random shape');
+        return { content: j.content, author: j.author || 'Unknown' };
+      }
+    },
+    {
+      name: 'zenquotes',
+      fetch: async (signal) => {
+        // Returns array: [{ q: quote, a: author }]
+        const r = await fetch('https://zenquotes.io/api/random', { signal });
+        if (!r.ok) throw new Error('zenquotes HTTP ' + r.status);
+        const j = await r.json();
+        const item = Array.isArray(j) ? j[0] : null;
+        if (!item || !item.q) throw new Error('zenquotes shape');
+        return { content: item.q, author: item.a || 'Unknown' };
+      }
+    },
+    {
+      name: 'typefit',
+      fetch: async (signal) => {
+        // Returns large array; pick random
+        const r = await fetch('https://type.fit/api/quotes', { signal });
+        if (!r.ok) throw new Error('typefit HTTP ' + r.status);
+        const j = await r.json();
+        if (!Array.isArray(j) || !j.length) throw new Error('typefit empty');
+        const pick = j[Math.floor(Math.random() * j.length)];
+        if (!pick || !pick.text) throw new Error('typefit shape');
+        return { content: pick.text, author: pick.author || 'Unknown' };
+      }
+    }
   ];
+
+  let currentAbort = null;
 
   // ------------------ Helpers ------------------
   function setLoading(isLoading) {
@@ -60,39 +94,32 @@
   }
 
   async function fetchRandomQuote() {
-    setLoading(true);
-    try {
-      let data = await getJSON(ENDPOINTS[0]);
-      // quotable.io/random returns {content, author}
-      if (data && data.content) {
-        updateQuote(data.content, data.author);
-      } else {
-        throw new Error('Unexpected random shape');
-      }
-    } catch (err) {
-      // Fallback attempt: list endpoint
-      try {
-        const list = await getJSON(ENDPOINTS[1]);
-        if (list && Array.isArray(list.results) && list.results.length) {
-          const pick = list.results[Math.floor(Math.random() * list.results.length)];
-            updateQuote(pick.content, pick.author);
-        } else {
-          throw new Error('Fallback empty');
-        }
-      } catch (fallbackErr) {
-        updateQuote('Unable to fetch quote. Please try again.', '');
-        console.error('Quote fetch failed:', err, fallbackErr);
-      }
-    } finally {
-      setLoading(false);
-      render();
-    }
-  }
+    if (currentAbort) currentAbort.abort();
+    currentAbort = new AbortController();
+    const { signal } = currentAbort;
 
-  async function getJSON(url) {
-    const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    return resp.json();
+    setLoading(true);
+    let lastError = null;
+    for (const provider of Providers) {
+      try {
+        const { content, author } = await provider.fetch(signal);
+        updateQuote(content, author);
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+        if (signal.aborted) {
+          return; // aborted intentionally
+        }
+        // continue to next provider
+      }
+    }
+    if (lastError) {
+      updateQuote('Unable to fetch quote. Please try again.', '');
+      console.error('All providers failed:', lastError);
+    }
+    setLoading(false);
+    render();
   }
 
   function updateQuote(text, author) {
