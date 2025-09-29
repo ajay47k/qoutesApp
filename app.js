@@ -19,6 +19,14 @@
 
   // ------------------ Config / Providers ------------------
   // We rotate through providers; each returns a normalized { content, author }
+  const localFallback = [
+    { content: 'Simplicity is the soul of efficiency.', author: 'Austin Freeman' },
+    { content: 'Action is the foundational key to all success.', author: 'Pablo Picasso' },
+    { content: 'Well begun is half done.', author: 'Aristotle' },
+    { content: 'The only limit to our realization of tomorrow is our doubts of today.', author: 'Franklin D. Roosevelt' },
+    { content: 'Make it work, make it right, make it fast.', author: 'Kent Beck' }
+  ];
+
   const Providers = [
     {
       name: 'quotable-random',
@@ -31,21 +39,18 @@
       }
     },
     {
-      name: 'zenquotes',
+      name: 'dummyjson',
       fetch: async (signal) => {
-        // Returns array: [{ q: quote, a: author }]
-        const r = await fetch('https://zenquotes.io/api/random', { signal });
-        if (!r.ok) throw new Error('zenquotes HTTP ' + r.status);
+        const r = await fetch('https://dummyjson.com/quotes/random', { signal });
+        if (!r.ok) throw new Error('dummyjson HTTP ' + r.status);
         const j = await r.json();
-        const item = Array.isArray(j) ? j[0] : null;
-        if (!item || !item.q) throw new Error('zenquotes shape');
-        return { content: item.q, author: item.a || 'Unknown' };
+        if (!j.quote) throw new Error('dummyjson shape');
+        return { content: j.quote, author: j.author || 'Unknown' };
       }
     },
     {
       name: 'typefit',
       fetch: async (signal) => {
-        // Returns large array; pick random
         const r = await fetch('https://type.fit/api/quotes', { signal });
         if (!r.ok) throw new Error('typefit HTTP ' + r.status);
         const j = await r.json();
@@ -53,6 +58,13 @@
         const pick = j[Math.floor(Math.random() * j.length)];
         if (!pick || !pick.text) throw new Error('typefit shape');
         return { content: pick.text, author: pick.author || 'Unknown' };
+      }
+    },
+    {
+      name: 'local-fallback',
+      fetch: async () => {
+        const pick = localFallback[Math.floor(Math.random() * localFallback.length)];
+        return pick;
       }
     }
   ];
